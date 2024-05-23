@@ -62,10 +62,6 @@ static td_void sample_ive_handle_sig(td_s32 singal)
                 sample_ive_md_handle_sig();
                 break;
                 }
-            case '8': {
-                sample_ive_kcf_handle_sig();
-                break;
-                }
             default: {
                 break;
                 }
@@ -89,7 +85,6 @@ static td_void sample_ive_usage(const td_char *name)
     printf("\t 5)PerspTrans.(FILE->IVE->FILE).\n");
     printf("\t 6)Occlusion detected.(VI->VPSS->IVE->VO_HDMI).\n");
     printf("\t 7)Motion detected.(VI->VPSS->IVE->VGS->VO_HDMI).\n");
-    printf("\t 8)Kcf track.(FILE->VDEC->VPSS->SVP_NPU->IVE->VGS->VO_HDMI).\n");
 }
 
 /*
@@ -146,10 +141,6 @@ static td_s32 sample_ive_case_with_one_arg(char *argv[])
             }
         case '7': {
             sample_ive_md();
-            break;
-            }
-        case '8': {
-            sample_ive_kcf();
             break;
             }
         default: {

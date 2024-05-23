@@ -48,11 +48,6 @@ td_void sample_ive_md(td_void);
 td_void sample_ive_persp_trans(td_void);
 
 /*
- * function : show Kcf sample
- */
-td_void sample_ive_kcf(td_void);
-
-/*
  * function :Canny sample signal handle
  */
 td_void sample_ive_canny_handle_sig(td_void);
@@ -92,9 +87,6 @@ td_void sample_ive_od_handle_sig(td_void);
  * function : Md sample signal handle
  */
 td_void sample_ive_md_handle_sig(td_void);
-/*
- * function : kcf sample signal handle
- */
-td_void sample_ive_kcf_handle_sig(td_void);
+
 #endif
 

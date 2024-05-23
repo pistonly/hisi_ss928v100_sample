@@ -14,6 +14,11 @@ for l in lines:
             link_dict[k] = set()
         link_dict[k].add(p.name)
 print(link_dict)
+
+for k, v in link_dict.items():
+    print(k)
+    for v_i in v:
+        print(v_i)
     
 
 

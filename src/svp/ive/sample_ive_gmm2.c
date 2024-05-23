@@ -48,7 +48,7 @@
 #define OT_SAMPLE_IVE_GMM2_NUM_TWO                      2
 #define OT_SAMPLE_IVE_GMM2_CIF_WIDTH                    352
 #define OT_SAMPLE_IVE_GMM2_CIF_HEIGHT                   288
-#define OT_SAMPLE_IVE_TOTAL_FRAME                       200
+#define OT_SAMPLE_IVE_TOTAL_FRAME                       700
 
 typedef struct {
     ot_svp_src_img src[OT_SAMPLE_IVE_SRC_NUM];
@@ -191,9 +191,7 @@ static td_s32 sample_ive_gmm2_init(ot_sample_ive_gmm2_info *gmm2, ot_size pic_si
     td_s32 ret = OT_ERR_IVE_NULL_PTR;
     td_u32 size;
     td_char path[PATH_MAX] = {0};
-    const td_char *src_file =
-        "./data/input/gmm2/"
-        "gmm2_352x288_sp400_frm1000.yuv";
+    const td_char *src_file = "./data/input/gmm2/gmm2_352x288_sp400_frm1000.yuv";
 
     sample_svp_check_exps_return(gmm2 == TD_NULL, ret, SAMPLE_SVP_ERR_LEVEL_ERROR, "gmm2 can't be null\n");
     sample_svp_check_exps_return((strlen(src_file) > PATH_MAX) || (realpath(src_file, path) == TD_NULL),
