@@ -1,0 +1,8 @@
+* issue
+** vi error @ EB with 2.0.2.1固件
+#+begin_src 
+~/Documents/haisi/my_samples # ./sample_ive_main 7
+[sample_comm_vi_start_dev]-1023: vi set dev attr failed with 0xa0108018!
+[sample_comm_vi_start_vi]-1435: start dev failed!
+#+end_src
+
