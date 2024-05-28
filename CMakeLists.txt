@@ -64,6 +64,11 @@ FILE(GLOB SVP_COMMON_SRC ./src/svp/common/*.c)
 FILE(GLOB IVE_SRC ./src/svp/ive/*.c)
 add_executable(sample_ive_main ./src/examples/sample_ive_main.c ${SVP_COMMON_SRC} ${IVE_SRC} ${SAMPLE_COMMON_SRC})
 
+add_executable(test_vio ./src/examples/test_vio.c ${SVP_COMMON_SRC} ${SAMPLE_COMMON_SRC})
+add_executable(test_vio_v2 ./src/examples/test_vio_v2.c ${SVP_COMMON_SRC} ${SAMPLE_COMMON_SRC})
+add_executable(test_vio_mono ./src/examples/test_vio_mono.c ${SVP_COMMON_SRC} ${SAMPLE_COMMON_SRC})
+add_executable(test_vio_mono_v2 ./src/examples/test_vio_mono_v2.c ${SVP_COMMON_SRC} ${SAMPLE_COMMON_SRC})
+
 include(cmake/ive_link_libs.cmake)
 # 链接库到目标
 target_link_libraries(sample_ive_main
@@ -74,5 +79,34 @@ target_link_libraries(sample_ive_main
   stdc++ # note this line is important
 )
 
+target_link_libraries(test_vio
+  ${SYSTEM_LIBS}
+  ${SECURITY_LIBS}
+  ${ACL_LIBS}
+  ${IVE_LINK_LIBS}
+  stdc++ # note this line is important
+)
 
+target_link_libraries(test_vio_v2
+  ${SYSTEM_LIBS}
+  ${SECURITY_LIBS}
+  ${ACL_LIBS}
+  ${IVE_LINK_LIBS}
+  stdc++ # note this line is important
+)
 
+target_link_libraries(test_vio_mono
+  ${SYSTEM_LIBS}
+  ${SECURITY_LIBS}
+  ${ACL_LIBS}
+  ${IVE_LINK_LIBS}
+  stdc++ # note this line is important
+)
+
+target_link_libraries(test_vio_mono_v2
+  ${SYSTEM_LIBS}
+  ${SECURITY_LIBS}
+  ${ACL_LIBS}
+  ${IVE_LINK_LIBS}
+  stdc++ # note this line is important
+)

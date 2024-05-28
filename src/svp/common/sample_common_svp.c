@@ -561,6 +561,10 @@ td_s32 sample_common_svp_start_vi_vpss_venc_vo(sample_vi_cfg *vi_cfg,
     sample_svp_check_exps_return(ret != TD_SUCCESS, ret, SAMPLE_SVP_ERR_LEVEL_ERROR,
         "sample_common_svp_set_vi_cfg failed,Error:%#x\n", ret);
 
+    // TODO: why need these two line? added by ly
+    vi_cfg[0].mipi_info.divide_mode = LANE_DIVIDE_MODE_1;
+    vi_cfg[0].sns_info.bus_id = 5;
+
     /* step  1: Init vb */
     ret = sample_common_svp_vb_init(pic_type, pic_size, OT_VPSS_CHN_NUM);
     sample_svp_check_exps_return(ret != TD_SUCCESS, ret, SAMPLE_SVP_ERR_LEVEL_ERROR,
