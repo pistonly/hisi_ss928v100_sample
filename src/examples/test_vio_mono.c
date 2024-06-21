@@ -12,7 +12,7 @@
 #define VB_YUV_ROUTE_CNT 10
 #define VB_DOUBLE_YUV_CNT 15
 #define VB_MULTI_YUV_CNT 30
-#define SAMPLE_SVP_BLK_CNT           16
+#define SAMPLE_SVP_BLK_CNT 16
 
 static sample_vi_cfg g_vi_config;
 static ot_sample_svp_switch g_md_switch = {TD_FALSE, TD_TRUE};
@@ -185,62 +185,67 @@ static td_s32 sample_vio_start_vpss(ot_vpss_grp grp, ot_size *in_size) {
   return TD_SUCCESS;
 }
 
-static td_s32 sample_common_svp_vb_init(ot_pic_size *pic_type, ot_size *pic_size,
-    td_u32 vpss_chn_num)
-{
-    td_s32 ret;
-    td_u32 i;
-    ot_vb_cfg vb_cfg = {0};
-    ot_pic_buf_attr pic_buf_attr;
-    ot_vb_calc_cfg calc_cfg;
-    ot_vi_vpss_mode_type mode_type = OT_VI_ONLINE_VPSS_OFFLINE;
-    ot_vi_video_mode video_mode = OT_VI_VIDEO_MODE_NORM;
+static td_s32 sample_common_svp_vb_init(ot_pic_size *pic_type,
+                                        ot_size *pic_size,
+                                        td_u32 vpss_chn_num) {
+  td_s32 ret;
+  td_u32 i;
+  ot_vb_cfg vb_cfg = {0};
+  ot_pic_buf_attr pic_buf_attr;
+  ot_vb_calc_cfg calc_cfg;
+  ot_vi_vpss_mode_type mode_type = OT_VI_ONLINE_VPSS_OFFLINE;
+  ot_vi_video_mode video_mode = OT_VI_VIDEO_MODE_NORM;
 
-    vb_cfg.max_pool_cnt = OT_SAMPLE_IVE_MAX_POOL_CNT;
+  vb_cfg.max_pool_cnt = OT_SAMPLE_IVE_MAX_POOL_CNT;
 
-    ret = sample_comm_sys_get_pic_size(pic_type[0], &pic_size[0]);
-    sample_svp_check_exps_goto(ret != TD_SUCCESS, vb_fail_0, SAMPLE_SVP_ERR_LEVEL_ERROR,
+  ret = sample_comm_sys_get_pic_size(pic_type[0], &pic_size[0]);
+  sample_svp_check_exps_goto(
+      ret != TD_SUCCESS, vb_fail_0, SAMPLE_SVP_ERR_LEVEL_ERROR,
+      "sample_comm_sys_get_pic_size failed,Error(%#x)!\n", ret);
+  pic_buf_attr.width = pic_size[0].width;
+  pic_buf_attr.height = pic_size[0].height;
+  pic_buf_attr.align = OT_DEFAULT_ALIGN;
+  pic_buf_attr.bit_width = OT_DATA_BIT_WIDTH_8;
+  pic_buf_attr.pixel_format = OT_PIXEL_FORMAT_YVU_SEMIPLANAR_422;
+  pic_buf_attr.compress_mode = OT_COMPRESS_MODE_NONE;
+
+  ot_common_get_pic_buf_cfg(&pic_buf_attr, &calc_cfg);
+
+  vb_cfg.common_pool[0].blk_size = calc_cfg.vb_size;
+  vb_cfg.common_pool[0].blk_cnt = SAMPLE_SVP_BLK_CNT;
+
+  for (i = 1; (i < vpss_chn_num) && (i < OT_VB_MAX_COMMON_POOLS); i++) {
+    ret = sample_comm_sys_get_pic_size(pic_type[i], &pic_size[i]);
+    sample_svp_check_exps_goto(
+        ret != TD_SUCCESS, vb_fail_0, SAMPLE_SVP_ERR_LEVEL_ERROR,
         "sample_comm_sys_get_pic_size failed,Error(%#x)!\n", ret);
-    pic_buf_attr.width = pic_size[0].width;
-    pic_buf_attr.height = pic_size[0].height;
-    pic_buf_attr.align = OT_DEFAULT_ALIGN;
-    pic_buf_attr.bit_width = OT_DATA_BIT_WIDTH_8;
-    pic_buf_attr.pixel_format = OT_PIXEL_FORMAT_YVU_SEMIPLANAR_422;
+    pic_buf_attr.width = pic_size[i].width;
+    pic_buf_attr.height = pic_size[i].height;
     pic_buf_attr.compress_mode = OT_COMPRESS_MODE_NONE;
+    pic_buf_attr.align = OT_DEFAULT_ALIGN;
 
     ot_common_get_pic_buf_cfg(&pic_buf_attr, &calc_cfg);
 
-    vb_cfg.common_pool[0].blk_size = calc_cfg.vb_size;
-    vb_cfg.common_pool[0].blk_cnt = SAMPLE_SVP_BLK_CNT;
+    /* comm video buffer */
+    vb_cfg.common_pool[i].blk_size = calc_cfg.vb_size;
+    vb_cfg.common_pool[i].blk_cnt = SAMPLE_SVP_BLK_CNT;
+  }
 
-    for (i = 1; (i < vpss_chn_num) && (i < OT_VB_MAX_COMMON_POOLS); i++) {
-        ret = sample_comm_sys_get_pic_size(pic_type[i], &pic_size[i]);
-        sample_svp_check_exps_goto(ret != TD_SUCCESS, vb_fail_0, SAMPLE_SVP_ERR_LEVEL_ERROR,
-            "sample_comm_sys_get_pic_size failed,Error(%#x)!\n", ret);
-        pic_buf_attr.width = pic_size[i].width;
-        pic_buf_attr.height = pic_size[i].height;
-        pic_buf_attr.compress_mode = OT_COMPRESS_MODE_NONE;
-        pic_buf_attr.align = OT_DEFAULT_ALIGN;
+  ret = sample_comm_sys_init_with_vb_supplement(&vb_cfg,
+                                                OT_VB_SUPPLEMENT_BNR_MOT_MASK);
+  sample_svp_check_exps_goto(ret != TD_SUCCESS, vb_fail_1,
+                             SAMPLE_SVP_ERR_LEVEL_ERROR,
+                             "sample_comm_sys_init failed,Error(%#x)!\n", ret);
 
-        ot_common_get_pic_buf_cfg(&pic_buf_attr, &calc_cfg);
-
-        /* comm video buffer */
-        vb_cfg.common_pool[i].blk_size = calc_cfg.vb_size;
-        vb_cfg.common_pool[i].blk_cnt = SAMPLE_SVP_BLK_CNT;
-    }
-
-    ret = sample_comm_sys_init_with_vb_supplement(&vb_cfg, OT_VB_SUPPLEMENT_BNR_MOT_MASK);
-    sample_svp_check_exps_goto(ret != TD_SUCCESS, vb_fail_1, SAMPLE_SVP_ERR_LEVEL_ERROR,
-        "sample_comm_sys_init failed,Error(%#x)!\n", ret);
-
-    ret = sample_comm_vi_set_vi_vpss_mode(mode_type, video_mode);
-    sample_svp_check_exps_goto(ret != TD_SUCCESS, vb_fail_1, SAMPLE_SVP_ERR_LEVEL_ERROR,
-        "sample_comm_vi_set_vi_vpss_mode failed!\n");
-    return ret;
+  ret = sample_comm_vi_set_vi_vpss_mode(mode_type, video_mode);
+  sample_svp_check_exps_goto(ret != TD_SUCCESS, vb_fail_1,
+                             SAMPLE_SVP_ERR_LEVEL_ERROR,
+                             "sample_comm_vi_set_vi_vpss_mode failed!\n");
+  return ret;
 vb_fail_1:
-    sample_comm_sys_exit();
+  sample_comm_sys_exit();
 vb_fail_0:
-    return ret;
+  return ret;
 }
 
 td_s32 main(td_s32 argc, td_char *argv[]) {
