@@ -15,11 +15,15 @@
 #include <signal.h>
 
 #include "ot_common.h"
+#include "ot_common_ive.h"
+#include "ot_common_svp.h"
 #include "ot_common_video.h"
 #include "ot_common_sys.h"
 #include "ot_common_vgs.h"
 #include "ot_common_vi.h"
 #include "ot_common_vo.h"
+#include "ot_type.h"
+#include "sample_common_svp.h"
 #include "ss_mpi_sys.h"
 
 #define OT_SAMPLE_IVE_QUERY_SLEEP   100
@@ -173,6 +177,51 @@ td_s32 sample_common_ive_read_file(ot_svp_img *img, FILE *fp)
     return TD_SUCCESS;
 }
 
+td_s32 write_frame_tmp(ot_svp_img *img, td_s32 cur_idx) {
+  td_u8 *ptr_tmp = TD_NULL;
+  td_u8 *ptr_pix = TD_NULL;
+  td_u16 c, h, pix_i;
+  td_s32 ret = OT_ERR_IVE_NULL_PTR;
+  ot_sample_rw_image_loop_info loop_info = {0};
+
+  td_u8 pix_v = 0;
+
+  /* sample_svp_trace_debug("\n cur_idx: %d", cur_idx); */
+  sample_svp_check_exps_return(img == TD_NULL, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                               "img can't be null\n");
+  sample_comm_ive_get_loop_info(img, &loop_info);
+  for (c = 0; (c < loop_info.loop_c) && (c < OT_SVP_IMG_STRIDE_NUM) &&
+              (c < OT_SVP_IMG_ADDR_NUM);
+       c++) {
+    ptr_tmp = sample_svp_convert_addr_to_ptr(td_u8, img->virt_addr[c]);
+    sample_svp_check_exps_return(ptr_tmp == 0, OT_ERR_IVE_ILLEGAL_PARAM,
+                                 SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                                 "ptr_tmp can't be 0\n");
+    ptr_pix = ptr_tmp;
+    for (h = 0; h < loop_info.loop_h[c]; h++) {
+      for (pix_i = 0; pix_i < img->width * loop_info.ele_size; ++pix_i) {
+        if (cur_idx < 1) {
+          pix_v = 0;
+          /* if (h == 0 && pix_i == 0) */
+          /*   sample_svp_trace_debug("0"); */
+        } else {
+          /* if (h == 0 && pix_i == 0) */
+          /*   sample_svp_trace_debug("1"); */
+          if (h > 100 && h < 200 && pix_i > 100 && pix_i < 200) {
+            pix_v = 255;
+          } else
+            pix_v = 0;
+        }
+        *(ptr_pix++) = pix_v;
+      }
+      ptr_tmp += img->stride[c] * loop_info.ele_size;
+      ptr_pix = ptr_tmp;
+    }
+  }
+
+  return TD_SUCCESS;
+}
+
 /*
  * function :Write file
  */
@@ -308,6 +357,84 @@ td_s32 sample_common_ive_blob_to_rect(ot_ive_ccblob *blob, ot_sample_svp_rect_in
     return TD_SUCCESS;
 }
 
+/*
+ * function: blob to roi images
+ */
+td_s32 sample_common_ive_blob_to_rois(ot_ive_ccblob *blob, ot_svp_img *img,
+                                      td_u16 rect_max_num, td_u16 area_thr_step,
+                                      td_u8 *rois, td_u16 *roi_num) {
+
+  td_u16 num, i;
+  td_u16 thr = 0;
+  td_bool valid;
+  sample_svp_check_exps_return(blob == TD_NULL, OT_ERR_IVE_NULL_PTR,
+                               SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                               "blob can't be null\n");
+
+  if (blob->info.bits.rgn_num > rect_max_num) {
+    sample_comm_ive_get_thresh(blob, area_thr_step, rect_max_num, &thr);
+  }
+
+  num = 0;
+
+  td_u32 center_x=0, center_y=0;
+  td_u32 roi_size = 32 * 32;
+  td_u32 h, w, h_start, w_start, h_end, w_end, c; 
+  ot_sample_rw_image_loop_info loop_info = {0};
+  td_u8 *ptr_tmp = TD_NULL, *ptr_pix=TD_NULL;
+  td_s32 ret = OT_ERR_IVE_NULL_PTR;
+
+  sample_svp_check_exps_return(img == TD_NULL, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                               "img can't be null\n");
+  sample_comm_ive_get_loop_info(img, &loop_info);
+
+  for (i = 0; i < blob->info.bits.rgn_num; i++) {
+    if (blob->rgn[i].area <= thr) {
+      continue;
+    }
+
+    center_x =
+      (td_u32)(0.5 * ((td_float)blob->rgn[i].left + (td_float)blob->rgn[i].right));
+    center_y =
+      (td_u32)(0.5 * ((td_float)blob->rgn[i].top + (td_float)blob->rgn[i].bottom));
+
+    sample_svp_trace_debug("\n center: %d, %d", center_x, center_y);
+
+    // write roi
+    td_u8 *roi_ptr = rois + i * roi_size;
+    td_u8 *roi_pix = roi_ptr;
+    for (c = 0; (c < loop_info.loop_c) && (c < OT_SVP_IMG_STRIDE_NUM) && (c < OT_SVP_IMG_ADDR_NUM); c++) {
+      ptr_tmp = sample_svp_convert_addr_to_ptr(td_u8, img->virt_addr[c]);
+      sample_svp_check_exps_return(ptr_tmp == 0, OT_ERR_IVE_ILLEGAL_PARAM,
+                                   SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                                   "ptr_tmp can't be 0\n");
+      w_start = (center_x - 16 > 0? center_x - 16: 0);
+      w_end = (img->width * loop_info.ele_size > center_x + 16
+                   ? center_x + 16
+               : img->width * loop_info.ele_size);
+      h_start = (center_y - 16 > 0? center_y - 16: 0);
+      h_end = (loop_info.loop_h[c] > center_y + 16 ? center_y + 16
+               : loop_info.loop_h[c]);
+      ptr_tmp += h_start * img->stride[c] * loop_info.ele_size;
+      ptr_pix = ptr_tmp;
+      for (h = h_start; h < h_end; h++) {
+        for (w = w_start; w < w_end; w++) {
+          *(roi_pix++) = *(ptr_pix+w);
+          sample_svp_trace_debug("\n pix_v: %d", *(ptr_pix + w));
+        }
+        roi_ptr += 32;
+        roi_pix = roi_ptr;
+        ptr_tmp += img->stride[c] * loop_info.ele_size;
+        ptr_pix = ptr_tmp;
+      }
+    }
+    num++;
+
+  }
+
+  *roi_num = num;
+  return TD_SUCCESS;
+}
 
 static td_s32 sample_comm_ive_set_image_addr(ot_svp_img *img, const ot_sample_rw_image_loop_info *loop_info,
     td_bool is_mmz_cached)
@@ -465,6 +592,8 @@ td_s32 sample_common_ive_dma_image(ot_video_frame_info *frame_info, ot_svp_dst_i
     src_data.width = frame_info->video_frame.width;
     src_data.height = frame_info->video_frame.height;
     src_data.stride = frame_info->video_frame.stride[0];
+    /* sample_svp_trace_debug("\n dma src size, width: %d, height:%d", src_data.width, */
+    /*                        src_data.height); */
 
     /* fill dst */
     dst_data.virt_addr = dst->virt_addr[0];
@@ -472,6 +601,8 @@ td_s32 sample_common_ive_dma_image(ot_video_frame_info *frame_info, ot_svp_dst_i
     dst_data.width = dst->width;
     dst_data.height = dst->height;
     dst_data.stride = dst->stride[0];
+    /* sample_svp_trace_debug("\n dma dst size, width: %d, height:%d", dst_data.width, */
+    /*                        dst_data.height); */
 
     ret = ss_mpi_ive_dma(&handle, &src_data, &dst_data, &ctrl, is_instant);
     sample_svp_check_exps_return(ret != TD_SUCCESS, ret, SAMPLE_SVP_ERR_LEVEL_ERROR,

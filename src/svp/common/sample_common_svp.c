@@ -215,6 +215,7 @@ static td_s32 sample_common_svp_vb_init(ot_pic_size *pic_type, ot_size *pic_size
     vb_cfg.max_pool_cnt = OT_SAMPLE_IVE_MAX_POOL_CNT;
 
     ret = sample_comm_sys_get_pic_size(pic_type[0], &pic_size[0]);
+    sample_svp_trace_debug("vb init pic_size, width: %d, height: %d", pic_size[0].width, pic_size[0].height);
     sample_svp_check_exps_goto(ret != TD_SUCCESS, vb_fail_0, SAMPLE_SVP_ERR_LEVEL_ERROR,
         "sample_comm_sys_get_pic_size failed,Error(%#x)!\n", ret);
     pic_buf_attr.width = pic_size[0].width;
@@ -589,6 +590,7 @@ td_s32 sample_common_svp_start_vi_vpss_venc_vo(sample_vi_cfg *vi_cfg,
     ret = sample_common_svp_set_and_start_vo(switch_ptr, &vo_cfg);
     sample_svp_check_exps_goto(ret != TD_SUCCESS, end_init_4, SAMPLE_SVP_ERR_LEVEL_ERROR,
         "Error(%#x),sample_common_svp_set_vi_frame failed!\n", ret);
+    sample_svp_trace_debug("\n vo_cfg size, width: %d, height %d", vo_cfg.image_size.width, vo_cfg.image_size.height);
 
     /* step 6: Start Venc */
     ret = sample_common_svp_start_venc(switch_ptr, &vo_cfg);

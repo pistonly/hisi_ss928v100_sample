@@ -1,22 +1,25 @@
 /*
   Copyright (c), 2001-2022, Shenshu Tech. Co., Ltd.
  */
-#include "sample_common_ive.h"
+#include "ot_common_ive.h"
 #include "ot_ivs_md.h"
+#include "sample_common_ive.h"
+#include "sample_common_svp.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <signal.h>
-#include <semaphore.h>
-#include <pthread.h>
-#include <sys/prctl.h>
 
 #define OT_SAMPLE_IVE_MD_IMAGE_NUM          2
 #define OT_SAMPLE_IVE_MD_MILLIC_SEC         20000
@@ -89,7 +92,7 @@ static td_s32 sample_ivs_md_init(ot_sample_ivs_md_info *md_inf_ptr, td_u32 width
         "Error(%#x),Create blob mem info failed!\n", ret);
 
     /* Set attr info */
-    md_inf_ptr->md_attr.alg_mode = OT_MD_ALG_MODE_BG;
+    md_inf_ptr->md_attr.alg_mode = OT_MD_ALG_MODE_REF;
     md_inf_ptr->md_attr.sad_mode = OT_IVE_SAD_MODE_MB_4X4;
     md_inf_ptr->md_attr.sad_out_ctrl = OT_IVE_SAD_OUT_CTRL_THRESHOLD;
     md_inf_ptr->md_attr.sad_threshold = OT_SAMPLE_IVE_SAD_THRESHOLD * (1 << 1);
@@ -143,6 +146,30 @@ static td_s32 sample_ivs_md_dma_data(td_u32 cur_idx, ot_video_frame_info *frm,
     return TD_SUCCESS;
 }
 
+
+/* first frame just init reference frame, if not, change the frame idx */
+static td_s32 sample_ivs_md_read_file(td_u32 cur_idx, FILE *fp_src,
+                                      ot_sample_ivs_md_info *md_ptr,
+                                      td_bool *is_first_frm) {
+  td_s32 ret;
+  td_bool is_instant = TD_TRUE;
+  if (*is_first_frm != TD_TRUE) {
+    /* ret = sample_common_ive_read_file(&md_ptr->img[cur_idx], fp_src); */
+    ret = write_frame_tmp(&md_ptr->img[cur_idx], cur_idx);
+    sample_svp_check_exps_return(ret != TD_SUCCESS, ret,
+                                 SAMPLE_SVP_ERR_LEVEL_ERROR,
+                                 "Error(%#x),Read src file failed!\n", ret);
+  } else {
+    /* ret = sample_common_ive_read_file(&md_ptr->img[1 - cur_idx], fp_src); */
+    ret = write_frame_tmp(&md_ptr->img[1-cur_idx], 1-cur_idx);
+    sample_svp_check_exps_return(ret != TD_SUCCESS, ret,
+                                 SAMPLE_SVP_ERR_LEVEL_ERROR,
+                                 "Error(%#x),Read src file failed!\n", ret);
+    *is_first_frm = TD_FALSE;
+  }
+  return TD_SUCCESS;
+}
+
 static td_void *sample_ivs_md_proc(td_void *args)
 {
     td_s32 ret;
@@ -159,6 +186,44 @@ static td_void *sample_ivs_md_proc(td_void *args)
     ret = ot_ivs_md_create_chn(hld.md_chn, &(md_ptr->md_attr));
     sample_svp_check_exps_return(ret != TD_SUCCESS, TD_NULL, SAMPLE_SVP_ERR_LEVEL_ERROR, "ot_ivs_md_create_chn fail\n");
 
+    /* open input file */
+    const td_char *src_file =
+        "./data/input/gmm2/gmm2_352x288_sp400_frm1000.yuv";
+    td_char path[PATH_MAX] = {0};
+    sample_svp_check_exps_return((strlen(src_file) > PATH_MAX) ||
+                                     (realpath(src_file, path) == TD_NULL),
+                                 OT_ERR_IVE_ILLEGAL_PARAM,
+                                 SAMPLE_SVP_ERR_LEVEL_ERROR, "invalid file!\n");
+    FILE *fp_src = fopen(path, "rb");
+    sample_svp_check_exps_return(fp_src == TD_NULL, OT_ERR_IVE_ILLEGAL_PARAM,
+                                 SAMPLE_SVP_ERR_LEVEL_ERROR,
+                                 "Open file failed!\n");
+    /* open output file */
+    sample_svp_check_exps_return(
+                                 (realpath("./data/output/gmm2", path) == TD_NULL),
+                                 OT_ERR_IVE_ILLEGAL_PARAM,
+                                 SAMPLE_SVP_ERR_LEVEL_ERROR,
+                                 "invalid dir!\n");
+    ret = strcat_s(path, PATH_MAX, "/1920x1080.yuv");
+    FILE *fp_out = fopen(path, "wb");
+    sample_svp_check_exps_return(fp_out == TD_NULL, OT_ERR_IVE_ILLEGAL_PARAM,
+                                 SAMPLE_SVP_ERR_LEVEL_ERROR,
+                                 "Open file failed!\n");
+
+    /* open output rois file */
+    sample_svp_check_exps_return(
+                                 (realpath("./data/output/gmm2", path) == TD_NULL),
+                                 OT_ERR_IVE_ILLEGAL_PARAM,
+                                 SAMPLE_SVP_ERR_LEVEL_ERROR,
+                                 "invalid dir!\n");
+    ret = strcat_s(path, PATH_MAX, "/rois.bin");
+    FILE *fp_out_rois = fopen(path, "wb");
+    sample_svp_check_exps_return(fp_out_rois == TD_NULL, OT_ERR_IVE_ILLEGAL_PARAM,
+                                 SAMPLE_SVP_ERR_LEVEL_ERROR,
+                                 "Open file failed!\n");
+
+    td_s32 img_num = 0;
+    td_u8 rois[32 * 32 * OT_SVP_RECT_NUM];
     while (g_stop_signal == TD_FALSE) {
         ret = ss_mpi_vpss_get_chn_frame(hld.vpss_grp, vpss_chn[1], &frm[1], OT_SAMPLE_IVE_MD_MILLIC_SEC);
         sample_svp_check_exps_continue(ret != TD_SUCCESS, SAMPLE_SVP_ERR_LEVEL_ERROR,
@@ -168,42 +233,73 @@ static td_void *sample_ivs_md_proc(td_void *args)
         sample_svp_check_failed_goto(ret, ext_free, SAMPLE_SVP_ERR_LEVEL_ERROR,
             "Error(%#x),vpss_get_chn_frame failed, VPSS_GRP(%d), VPSS_CHN(%d)!\n", ret, hld.vpss_grp, vpss_chn[0]);
 
-        ret = sample_ivs_md_dma_data(cur_idx, &frm[1], md_ptr, &is_first_frm);
-        sample_svp_check_failed_goto(ret, base_free, SAMPLE_SVP_ERR_LEVEL_ERROR, "dma data failed, Err(%#x)\n", ret);
+        /* ret = sample_ivs_md_dma_data(cur_idx, &frm[1], md_ptr, &is_first_frm); */
+        /* sample_svp_check_failed_goto(ret, base_free, */
+        /* SAMPLE_SVP_ERR_LEVEL_ERROR, "dma data failed, Err(%#x)\n", ret); */
 
+        ret = sample_ivs_md_read_file(cur_idx, fp_src, md_ptr, &is_first_frm);
+        sample_svp_check_failed_goto(ret, base_free, SAMPLE_SVP_ERR_LEVEL_ERROR,
+                                     "read data failed, Err(%#x)\n", ret);
         /* change idx */
         if (is_first_frm == TD_TRUE) {
-            goto change_idx;
+          goto change_idx;
         }
 
-        ret = ot_ivs_md_proc(hld.md_chn, &md_ptr->img[cur_idx], &md_ptr->img[1 - cur_idx], TD_NULL, &md_ptr->blob);
-        sample_svp_check_failed_goto(ret, base_free, SAMPLE_SVP_ERR_LEVEL_ERROR, "ivs_md_proc fail,Err(%#x)\n", ret);
+        ret = ot_ivs_md_proc(hld.md_chn, &md_ptr->img[cur_idx],
+                             &md_ptr->img[1 - cur_idx], TD_NULL, &md_ptr->blob);
+        sample_svp_check_failed_goto(ret, base_free, SAMPLE_SVP_ERR_LEVEL_ERROR,
+                                     "ivs_md_proc fail,Err(%#x)\n", ret);
 
-        sample_ivs_set_src_dst_size(&g_src_dst, md_ptr->md_attr.width, md_ptr->md_attr.height,
+        sample_ivs_set_src_dst_size(
+            &g_src_dst, md_ptr->md_attr.width, md_ptr->md_attr.height,
             frm[0].video_frame.width, frm[0].video_frame.height);
-        ret = sample_common_ive_blob_to_rect(sample_svp_convert_addr_to_ptr(ot_ive_ccblob, md_ptr->blob.virt_addr),
-            &(md_ptr->region), OT_SVP_RECT_NUM, OT_SAMPLE_IVE_MD_AREA_THR_STEP, g_src_dst);
-        sample_svp_check_exps_goto(ret != TD_SUCCESS, base_free, SAMPLE_SVP_ERR_LEVEL_ERROR, "blob to rect failed!\n");
+        ret = sample_common_ive_blob_to_rect(
+            sample_svp_convert_addr_to_ptr(ot_ive_ccblob,
+                                           md_ptr->blob.virt_addr),
+            &(md_ptr->region), OT_SVP_RECT_NUM, OT_SAMPLE_IVE_MD_AREA_THR_STEP,
+            g_src_dst);
+        sample_svp_check_exps_goto(ret != TD_SUCCESS, base_free,
+                                   SAMPLE_SVP_ERR_LEVEL_ERROR,
+                                   "blob to rect failed!\n");
+        td_u16 roi_num=0;
+        sample_common_ive_blob_to_rois(sample_svp_convert_addr_to_ptr(ot_ive_ccblob, md_ptr->blob.virt_addr), &md_ptr->img[cur_idx], OT_SVP_RECT_NUM, OT_SAMPLE_IVE_MD_AREA_THR_STEP, rois, &roi_num);
+
+        // write md image
+        ret = sample_common_ive_write_file(&md_ptr->img[cur_idx], fp_out);
+        // write rois
+        fwrite(&rois, 32 * 32 * roi_num, 1, fp_out_rois);
 
         /* Draw rect */
-        ret = sample_common_svp_vgs_fill_rect(&frm[0], &md_ptr->region, 0x0000FF00);
-        sample_svp_check_failed_err_level_goto(ret, base_free, "sample_svp_vgs_fill_rect fail,Err(%#x)\n", ret);
+        ret = sample_common_svp_vgs_fill_rect(&frm[0], &md_ptr->region,
+                                              0x0000FF00);
+        sample_svp_check_failed_err_level_goto(
+            ret, base_free, "sample_svp_vgs_fill_rect fail,Err(%#x)\n", ret);
 
-        ret = ss_mpi_vo_send_frame(hld.vo_layer, hld.vo_chn, &frm[0], OT_SAMPLE_IVE_MD_MILLIC_SEC);
-        sample_svp_check_failed_err_level_goto(ret, base_free, "ss_mpi_vo_send_frame fail,Error(%#x)\n", ret);
+        ret = ss_mpi_vo_send_frame(hld.vo_layer, hld.vo_chn, &frm[0],
+                                   OT_SAMPLE_IVE_MD_MILLIC_SEC);
+        sample_svp_check_failed_err_level_goto(
+            ret, base_free, "ss_mpi_vo_send_frame fail,Error(%#x)\n", ret);
 
-change_idx:
-        /* Change reference and current frame index */
-        cur_idx = 1 - cur_idx;
-base_free:
-        ret = ss_mpi_vpss_release_chn_frame(hld.vpss_grp, vpss_chn[0], &frm[0]);
-        sample_svp_check_exps_trace(ret != TD_SUCCESS, SAMPLE_SVP_ERR_LEVEL_ERROR,
-            "Err(%#x),release_frame failed,grp(%d) chn(%d)!\n", ret, hld.vpss_grp, vpss_chn[0]);
+    change_idx:
+      /* Change reference and current frame index */
+      cur_idx = 1 - cur_idx;
+    base_free:
+      ret = ss_mpi_vpss_release_chn_frame(hld.vpss_grp, vpss_chn[0], &frm[0]);
+      sample_svp_check_exps_trace(
+          ret != TD_SUCCESS, SAMPLE_SVP_ERR_LEVEL_ERROR,
+          "Err(%#x),release_frame failed,grp(%d) chn(%d)!\n", ret, hld.vpss_grp,
+          vpss_chn[0]);
 
-ext_free:
-        ret = ss_mpi_vpss_release_chn_frame(hld.vpss_grp, vpss_chn[1], &frm[1]);
-        sample_svp_check_exps_trace(ret != TD_SUCCESS, SAMPLE_SVP_ERR_LEVEL_ERROR,
-            "Err(%#x),release_frame failed,grp(%d) chn(%d)!\n", ret, hld.vpss_grp, vpss_chn[1]);
+    ext_free:
+      ret = ss_mpi_vpss_release_chn_frame(hld.vpss_grp, vpss_chn[1], &frm[1]);
+      sample_svp_check_exps_trace(
+          ret != TD_SUCCESS, SAMPLE_SVP_ERR_LEVEL_ERROR,
+          "Err(%#x),release_frame failed,grp(%d) chn(%d)!\n", ret, hld.vpss_grp,
+          vpss_chn[1]);
+
+      img_num++;
+      if (img_num > 20)
+        break;
     }
 
     /* destroy */
@@ -250,6 +346,8 @@ td_void sample_ive_md(td_void)
 {
     ot_size pic_size;
     ot_pic_size pic_type = PIC_1080P;
+    /* ot_pic_size pic_type = PIC_360P; */
+    /* ot_pic_size pic_type = PIC_3840X2160; */
     td_s32 ret;
 
     (td_void)memset_s(&g_md_info, sizeof(g_md_info), 0, sizeof(g_md_info));
@@ -260,13 +358,14 @@ td_void sample_ive_md(td_void)
     sample_svp_check_exps_goto(ret != TD_SUCCESS, end_md_0, SAMPLE_SVP_ERR_LEVEL_ERROR,
         "Error(%#x),sample_common_svp_start_vi_vpss_venc_vo failed!\n", ret);
 
-    pic_type = PIC_1080P;
+    /* pic_type = PIC_1080P; */
     ret = sample_comm_sys_get_pic_size(pic_type, &pic_size);
     sample_svp_check_exps_goto(ret != TD_SUCCESS, end_md_0, SAMPLE_SVP_ERR_LEVEL_ERROR,
         "Error(%#x),sample_comm_sys_get_pic_size failed!\n", ret);
     /*
      * step 2: Init Md
      */
+    sample_svp_trace_debug("\n width: %d, height: %d", pic_size.width, pic_size.height);
     ret = sample_ivs_md_init(&g_md_info, pic_size.width, pic_size.height);
     sample_svp_check_exps_goto(ret != TD_SUCCESS, end_md_0, SAMPLE_SVP_ERR_LEVEL_ERROR,
         " Error(%#x),sample_ivs_md_init failed!\n", ret);
