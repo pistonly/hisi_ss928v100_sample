@@ -2,6 +2,7 @@
   Copyright (c), 2001-2022, Shenshu Tech. Co., Ltd.
  */
 #include "ot_common_ive.h"
+#include "ot_common_md.h"
 #include "ot_ivs_md.h"
 #include "sample_common_ive.h"
 #include "sample_common_svp.h"
@@ -26,10 +27,10 @@
 #define OT_SAMPLE_IVE_MD_ADD_X_VAL          32768
 #define OT_SAMPLE_IVE_MD_ADD_Y_VAL          32768
 #define OT_SAMPLE_IVE_MD_THREAD_NAME_LEN    16
-#define OT_SAMPLE_IVE_MD_AREA_THR_STEP      8
+#define OT_SAMPLE_IVE_MD_AREA_THR_STEP      8 // 8
 #define OT_SAMPLE_IVE_MD_VPSS_CHN           2
 #define OT_SAMPLE_IVE_MD_NUM_TWO            2
-#define OT_SAMPLE_IVE_SAD_THRESHOLD         100
+#define OT_SAMPLE_IVE_SAD_THRESHOLD         1 // 100
 
 typedef struct {
     ot_svp_src_img img[OT_SAMPLE_IVE_MD_IMAGE_NUM];
@@ -93,9 +94,11 @@ static td_s32 sample_ivs_md_init(ot_sample_ivs_md_info *md_inf_ptr, td_u32 width
 
     /* Set attr info */
     md_inf_ptr->md_attr.alg_mode = OT_MD_ALG_MODE_REF;
+    /* md_inf_ptr->md_attr.alg_mode = OT_MD_ALG_MODE_BG; */
     md_inf_ptr->md_attr.sad_mode = OT_IVE_SAD_MODE_MB_4X4;
     md_inf_ptr->md_attr.sad_out_ctrl = OT_IVE_SAD_OUT_CTRL_THRESHOLD;
-    md_inf_ptr->md_attr.sad_threshold = OT_SAMPLE_IVE_SAD_THRESHOLD * (1 << 1);
+    /* md_inf_ptr->md_attr.sad_threshold = OT_SAMPLE_IVE_SAD_THRESHOLD * (1 << 1); */
+    md_inf_ptr->md_attr.sad_threshold = 50;
     md_inf_ptr->md_attr.width = width;
     md_inf_ptr->md_attr.height = height;
     md_inf_ptr->md_attr.add_ctrl.x = OT_SAMPLE_IVE_MD_ADD_X_VAL;
@@ -103,8 +106,11 @@ static td_s32 sample_ivs_md_init(ot_sample_ivs_md_info *md_inf_ptr, td_u32 width
     md_inf_ptr->md_attr.ccl_ctrl.mode = OT_IVE_CCL_MODE_4C;
     sad_mode = (td_u32)md_inf_ptr->md_attr.sad_mode;
     wnd_size = (1 << (OT_SAMPLE_IVE_MD_NUM_TWO + sad_mode));
-    md_inf_ptr->md_attr.ccl_ctrl.init_area_threshold = wnd_size * wnd_size;
-    md_inf_ptr->md_attr.ccl_ctrl.step = wnd_size;
+    sample_svp_trace_debug("wnd_size: %d\n", wnd_size);
+    /* md_inf_ptr->md_attr.ccl_ctrl.init_area_threshold = wnd_size * wnd_size; */
+    /* md_inf_ptr->md_attr.ccl_ctrl.step = wnd_size; */
+    md_inf_ptr->md_attr.ccl_ctrl.init_area_threshold = 1;
+    md_inf_ptr->md_attr.ccl_ctrl.step = 1;
 
     ret = ot_ivs_md_init();
     sample_svp_check_exps_goto(ret != TD_SUCCESS,  md_init_fail, SAMPLE_SVP_ERR_LEVEL_ERROR,
@@ -154,14 +160,14 @@ static td_s32 sample_ivs_md_read_file(td_u32 cur_idx, FILE *fp_src,
   td_s32 ret;
   td_bool is_instant = TD_TRUE;
   if (*is_first_frm != TD_TRUE) {
-    /* ret = sample_common_ive_read_file(&md_ptr->img[cur_idx], fp_src); */
-    ret = write_frame_tmp(&md_ptr->img[cur_idx], cur_idx);
+    ret = sample_common_ive_read_file(&md_ptr->img[cur_idx], fp_src);
+    /* ret = write_frame_tmp(&md_ptr->img[cur_idx], cur_idx); */
     sample_svp_check_exps_return(ret != TD_SUCCESS, ret,
                                  SAMPLE_SVP_ERR_LEVEL_ERROR,
                                  "Error(%#x),Read src file failed!\n", ret);
   } else {
-    /* ret = sample_common_ive_read_file(&md_ptr->img[1 - cur_idx], fp_src); */
-    ret = write_frame_tmp(&md_ptr->img[1-cur_idx], 1-cur_idx);
+    ret = sample_common_ive_read_file(&md_ptr->img[1 - cur_idx], fp_src);
+    /* ret = write_frame_tmp(&md_ptr->img[1-cur_idx], 1-cur_idx); */
     sample_svp_check_exps_return(ret != TD_SUCCESS, ret,
                                  SAMPLE_SVP_ERR_LEVEL_ERROR,
                                  "Error(%#x),Read src file failed!\n", ret);
@@ -188,7 +194,7 @@ static td_void *sample_ivs_md_proc(td_void *args)
 
     /* open input file */
     const td_char *src_file =
-        "./data/input/gmm2/gmm2_352x288_sp400_frm1000.yuv";
+        "./data/input/md/md_1920x1080.bin";
     td_char path[PATH_MAX] = {0};
     sample_svp_check_exps_return((strlen(src_file) > PATH_MAX) ||
                                      (realpath(src_file, path) == TD_NULL),
@@ -200,7 +206,7 @@ static td_void *sample_ivs_md_proc(td_void *args)
                                  "Open file failed!\n");
     /* open output file */
     sample_svp_check_exps_return(
-                                 (realpath("./data/output/gmm2", path) == TD_NULL),
+                                 (realpath("./data/output/md", path) == TD_NULL),
                                  OT_ERR_IVE_ILLEGAL_PARAM,
                                  SAMPLE_SVP_ERR_LEVEL_ERROR,
                                  "invalid dir!\n");
@@ -212,7 +218,7 @@ static td_void *sample_ivs_md_proc(td_void *args)
 
     /* open output rois file */
     sample_svp_check_exps_return(
-                                 (realpath("./data/output/gmm2", path) == TD_NULL),
+                                 (realpath("./data/output/md", path) == TD_NULL),
                                  OT_ERR_IVE_ILLEGAL_PARAM,
                                  SAMPLE_SVP_ERR_LEVEL_ERROR,
                                  "invalid dir!\n");
@@ -233,9 +239,9 @@ static td_void *sample_ivs_md_proc(td_void *args)
         sample_svp_check_failed_goto(ret, ext_free, SAMPLE_SVP_ERR_LEVEL_ERROR,
             "Error(%#x),vpss_get_chn_frame failed, VPSS_GRP(%d), VPSS_CHN(%d)!\n", ret, hld.vpss_grp, vpss_chn[0]);
 
-        /* ret = sample_ivs_md_dma_data(cur_idx, &frm[1], md_ptr, &is_first_frm); */
-        /* sample_svp_check_failed_goto(ret, base_free, */
-        /* SAMPLE_SVP_ERR_LEVEL_ERROR, "dma data failed, Err(%#x)\n", ret); */
+        ret = sample_ivs_md_dma_data(cur_idx, &frm[1], md_ptr, &is_first_frm);
+        sample_svp_check_failed_goto(ret, base_free,
+        SAMPLE_SVP_ERR_LEVEL_ERROR, "dma data failed, Err(%#x)\n", ret);
 
         ret = sample_ivs_md_read_file(cur_idx, fp_src, md_ptr, &is_first_frm);
         sample_svp_check_failed_goto(ret, base_free, SAMPLE_SVP_ERR_LEVEL_ERROR,
@@ -262,7 +268,13 @@ static td_void *sample_ivs_md_proc(td_void *args)
                                    SAMPLE_SVP_ERR_LEVEL_ERROR,
                                    "blob to rect failed!\n");
         td_u16 roi_num=0;
-        sample_common_ive_blob_to_rois(sample_svp_convert_addr_to_ptr(ot_ive_ccblob, md_ptr->blob.virt_addr), &md_ptr->img[cur_idx], OT_SVP_RECT_NUM, OT_SAMPLE_IVE_MD_AREA_THR_STEP, rois, &roi_num);
+        sample_svp_trace_debug("cuting ... \n");
+        sample_common_ive_blob_to_rois(
+            sample_svp_convert_addr_to_ptr(ot_ive_ccblob,
+                                           md_ptr->blob.virt_addr),
+            &md_ptr->img[cur_idx], OT_SVP_RECT_NUM,
+            OT_SAMPLE_IVE_MD_AREA_THR_STEP, rois, &roi_num, 1, 1);
+        sample_svp_trace_debug("roi_num: %d\n", roi_num);
 
         // write md image
         ret = sample_common_ive_write_file(&md_ptr->img[cur_idx], fp_out);
@@ -298,9 +310,13 @@ static td_void *sample_ivs_md_proc(td_void *args)
           vpss_chn[1]);
 
       img_num++;
-      if (img_num > 20)
+      sample_svp_trace_debug("\n img_num: %d", img_num);
+      if (img_num >= 1000)
         break;
     }
+
+    sample_svp_close_file(fp_out);
+    sample_svp_close_file(fp_out_rois);
 
     /* destroy */
     ret = ot_ivs_md_destroy_chn(hld.md_chn);

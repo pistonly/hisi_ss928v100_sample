@@ -43,6 +43,11 @@ td_void sample_ive_od(td_void);
 td_void sample_ive_md(td_void);
 
 /*
+ * function : show Md sample, ly
+ */
+td_void sample_ive_md_step(td_void);
+
+/*
  * function: MD from file, ly
  */
 td_void sample_ive_md_file(td_void);

@@ -122,6 +122,11 @@ td_void sample_common_ive_mpi_exit(td_void);
 td_s32 sample_common_ive_read_file(ot_svp_img *img, FILE *fp);
 
 /*
+ * function : init zero
+ */
+td_s32 sample_common_ive_init_zeros_img(ot_svp_img *img);
+
+/*
  * function : test
  */
 td_s32 write_frame_tmp(ot_svp_img *img, td_s32 cur_idx);
@@ -150,7 +155,7 @@ td_s32 sample_common_ive_blob_to_rect(ot_ive_ccblob *blob,
  */
 td_s32 sample_common_ive_blob_to_rois(ot_ive_ccblob *blob, ot_svp_img *img,
                                       td_u16 rect_max_num, td_u16 area_thr_step,
-                                      td_u8 *rois, td_u16 *roi_num);
+                                      td_u8 *rois, td_u16 *roi_num, td_float scale_x, td_float scale_y);
 /*
  * function : Create ive image
  */

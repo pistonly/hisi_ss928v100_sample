@@ -89,6 +89,7 @@ static td_void sample_ive_usage(const td_char *name) {
   printf("\t 6)Occlusion detected.(VI->VPSS->IVE->VO_HDMI).\n");
   printf("\t 7)Motion detected.(VI->VPSS->IVE->VGS->VO_HDMI).\n");
   printf("\t 8)Motion detection from file.(FILE->IVE)");
+  printf("\t 9)Motion detection step.(FILE->IVE)");
 }
 
 /*
@@ -148,6 +149,9 @@ static td_s32 sample_ive_case_with_one_arg(char *argv[]) {
   }
   case '8': {
     sample_ive_md_file();
+  }
+  case '9': {
+    sample_ive_md_step();
   }
   default: {
     ret = TD_FAILURE;

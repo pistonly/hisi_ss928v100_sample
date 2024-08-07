@@ -6,6 +6,10 @@ project(VI_AND_INFERENCE)
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 add_definitions(-DSENSOR0_TYPE=OV_OS08A20_MIPI_8M_30FPS_12BIT)
 
+# C++标准
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # Compile options
 add_compile_options(
         -fPIC
@@ -21,11 +25,14 @@ set(MPP_PATH ${SDK_PATH}/smp/a55_linux/mpp)
 set(SAMPLE_PATH ${MPP_PATH}/sample)
 set(OPENCV /home/liuyang/Documents/haisi/opencv)
 
+# FFmpeg路径
+set(FFMPEG_PATH /home/liuyang/Documents/haisi/ffmpeg/install)
+
 
 # Specify target generation path
 set(CMAKE_C_COMPILER "aarch64-mix210-linux-gcc")
 set(CMAKE_CXX_COMPILER "aarch64-mix210-linux-g++")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY  "../")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/output")
 set(CMAKE_CXX_FLAGS_DEBUG "-fPIC -O0 -g -Wall")
 set(CMAKE_CXX_FLAGS_RELEASE "-fPIC -O2 -Wall -s")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,relro,-z,now,-z,noexecstack -fPIE -pie")
@@ -39,12 +46,14 @@ include_directories(
   ${MPP_PATH}/out/include/svp_npu/
   ${SAMPLE_PATH}/common/
   ${SAMPLE_PATH}/audio/adp/
+  ${FFMPEG_PATH}/include
 )
 
 link_directories(
   ${MPP_PATH}/out/lib
   ${MPP_PATH}/out/lib/svp_npu
   ${OPENCV}/lib
+  ${FFMPEG_PATH}/lib
 )
 
 # FILE(GLOB COMMON_SRC_FILE
@@ -110,3 +119,5 @@ target_link_libraries(test_vio_mono_v2
   ${IVE_LINK_LIBS}
   stdc++ # note this line is important
 )
+
+add_subdirectory("./src/vdec")

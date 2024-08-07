@@ -131,50 +131,168 @@ static td_void sample_comm_ive_get_loop_info(const ot_svp_img *img, ot_sample_rw
     }
 }
 
+
+td_s32 sample_common_ive_set_img(ot_svp_img *img, const unsigned char *src){
+  td_u8 *ptr_tmp = TD_NULL, *ptr_pix=TD_NULL;
+  td_u16 c, h, w;
+  td_s32 ret = OT_ERR_IVE_NULL_PTR;
+  ot_sample_rw_image_loop_info loop_info = {0};
+
+  sample_svp_check_exps_return(img == TD_NULL, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                               "img can't be null\n");
+  sample_comm_ive_get_loop_info(img, &loop_info);
+  for (c = 0; (c < loop_info.loop_c) && (c < OT_SVP_IMG_STRIDE_NUM) &&
+              (c < OT_SVP_IMG_ADDR_NUM);
+       c++) {
+    ptr_tmp = sample_svp_convert_addr_to_ptr(td_u8, img->virt_addr[c]);
+    sample_svp_check_exps_return(ptr_tmp == 0, OT_ERR_IVE_ILLEGAL_PARAM,
+                                 SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                                 "ptr_tmp can't be 0\n");
+
+    for (h = 0; h < loop_info.loop_h[c]; h++) {
+      ptr_pix = ptr_tmp;
+      for (w = 0; w < img->width * loop_info.ele_size; ++w){
+        (*ptr_pix++) = (*src++);
+      }
+      ptr_tmp += img->stride[c] * loop_info.ele_size;
+    }
+  }
+  return TD_SUCCESS;
+}
+
 /*
  * function :Read file
  */
-td_s32 sample_common_ive_read_file(ot_svp_img *img, FILE *fp)
+td_s32 sample_common_ive_read_file(ot_svp_img *img, FILE *fp) {
+  td_u8 *ptr_tmp = TD_NULL;
+  td_u16 c, h;
+  td_s32 ret = OT_ERR_IVE_NULL_PTR;
+  ot_sample_rw_image_loop_info loop_info = {0};
+
+  sample_svp_check_exps_return(img == TD_NULL, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                               "img can't be null\n");
+  sample_svp_check_exps_return(fp == TD_NULL, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                               "fp can't be null\n");
+
+  ret = fgetc(fp);
+  sample_svp_check_exps_return(ret == EOF, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                               "fgetc fp failed!\n");
+  if (feof(fp)) {
+    sample_svp_trace_err("end of file!\n");
+    ret = fseek(fp, 0, SEEK_SET);
+    if (ret != 0) {
+      sample_svp_trace_err("fseek failed!\n");
+      return ret;
+    }
+  } else {
+    ret = fseek(fp, -1, SEEK_CUR);
+    if (ret != 0) {
+      sample_svp_trace_err("fseek failed!\n");
+      return ret;
+    }
+  }
+  sample_comm_ive_get_loop_info(img, &loop_info);
+  for (c = 0; (c < loop_info.loop_c) && (c < OT_SVP_IMG_STRIDE_NUM) &&
+              (c < OT_SVP_IMG_ADDR_NUM);
+       c++) {
+    ptr_tmp = sample_svp_convert_addr_to_ptr(td_u8, img->virt_addr[c]);
+    sample_svp_check_exps_return(ptr_tmp == 0, OT_ERR_IVE_ILLEGAL_PARAM,
+                                 SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                                 "ptr_tmp can't be 0\n");
+    for (h = 0; h < loop_info.loop_h[c]; h++) {
+      if (fread(ptr_tmp, img->width * loop_info.ele_size, 1, fp) != 1) {
+        sample_svp_trace_err("Read file fail\n");
+        return OT_ERR_IVE_ILLEGAL_PARAM;
+      }
+      ptr_tmp += img->stride[c] * loop_info.ele_size;
+    }
+  }
+
+  return TD_SUCCESS;
+}
+
+td_s32 sample_common_ive_read_file_loop(ot_svp_img *img, FILE *fp)
 {
     td_u8 *ptr_tmp = TD_NULL;
     td_u16 c, h;
     td_s32 ret = OT_ERR_IVE_NULL_PTR;
     ot_sample_rw_image_loop_info loop_info = {0};
+    long file_size, file_pos;
 
+    // 检查指针有效性
     sample_svp_check_exps_return(img == TD_NULL, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG, "img can't be null\n");
     sample_svp_check_exps_return(fp == TD_NULL, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG, "fp can't be null\n");
 
-    ret = fgetc(fp);
-    sample_svp_check_exps_return(ret == EOF, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG, "fgetc fp failed!\n");
-    if (feof(fp)) {
-        sample_svp_trace_err("end of file!\n");
-        ret = fseek(fp, 0, SEEK_SET);
-        if (ret != 0) {
-            sample_svp_trace_err("fseek failed!\n");
-            return ret;
-        }
-    } else {
-        ret = fseek(fp, -1, SEEK_CUR);
-        if (ret != 0) {
-            sample_svp_trace_err("fseek failed!\n");
-            return ret;
-        }
-    }
+    // 获取文件大小
+    fseek(fp, 0, SEEK_END);
+    file_size = ftell(fp);
+    ret = fseek(fp, 0, SEEK_SET);
+    sample_svp_check_exps_return(ret != 0, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG, "fseek to start failed!\n");
+
     sample_comm_ive_get_loop_info(img, &loop_info);
     for (c = 0; (c < loop_info.loop_c) && (c < OT_SVP_IMG_STRIDE_NUM) && (c < OT_SVP_IMG_ADDR_NUM); c++) {
         ptr_tmp = sample_svp_convert_addr_to_ptr(td_u8, img->virt_addr[c]);
         sample_svp_check_exps_return(ptr_tmp == 0, OT_ERR_IVE_ILLEGAL_PARAM,
             SAMPLE_SVP_ERR_LEVEL_DEBUG, "ptr_tmp can't be 0\n");
+        
         for (h = 0; h < loop_info.loop_h[c]; h++) {
+            // 记录当前文件位置
+            file_pos = ftell(fp);
+
+            // 如果读到文件末尾，重置文件指针
+            if (feof(fp)) {
+                ret = fseek(fp, 0, SEEK_SET);
+                sample_svp_check_exps_return(ret != 0, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG, "fseek to start failed!\n");
+                sample_svp_trace_err("Read to end of file, resetting to start.\n");
+            }
+
+            // 从当前文件位置读取
             if (fread(ptr_tmp, img->width * loop_info.ele_size, 1, fp) != 1) {
-                sample_svp_trace_err("Read file fail\n");
-                return OT_ERR_IVE_ILLEGAL_PARAM;
+                // 再次检查文件指针是否在末尾，重置并继续读取
+                if (feof(fp)) {
+                    ret = fseek(fp, 0, SEEK_SET);
+                    sample_svp_check_exps_return(ret != 0, ret, SAMPLE_SVP_ERR_LEVEL_DEBUG, "fseek to start failed!\n");
+                    sample_svp_trace_err("Read to end of file, resetting to start.\n");
+                    if (fread(ptr_tmp, img->width * loop_info.ele_size, 1, fp) != 1) {
+                        sample_svp_trace_err("Read file fail after resetting\n");
+                        return OT_ERR_IVE_ILLEGAL_PARAM;
+                    }
+                } else {
+                    sample_svp_trace_err("Read file fail\n");
+                    return OT_ERR_IVE_ILLEGAL_PARAM;
+                }
             }
             ptr_tmp += img->stride[c] * loop_info.ele_size;
         }
     }
 
     return TD_SUCCESS;
+}
+
+td_s32 sample_common_ive_init_zeros_img(ot_svp_img *img) {
+  ot_sample_rw_image_loop_info loop_info = {0};
+  sample_comm_ive_get_loop_info(img, &loop_info);
+  td_u16 c, h, w;
+  td_u8 *ptr_tmp = TD_NULL;
+  td_u8 *ptr_pix = TD_NULL;
+
+  for (c = 0; (c < loop_info.loop_c) && (c < OT_SVP_IMG_STRIDE_NUM) &&
+              (c < OT_SVP_IMG_ADDR_NUM);
+       c++) {
+    ptr_tmp = sample_svp_convert_addr_to_ptr(td_u8, img->virt_addr[c]);
+    sample_svp_check_exps_return(ptr_tmp == 0, OT_ERR_IVE_ILLEGAL_PARAM,
+                                 SAMPLE_SVP_ERR_LEVEL_DEBUG,
+                                 "ptr_tmp can't be 0\n");
+
+    for (h = 0; h < loop_info.loop_h[c]; h++) {
+      ptr_pix = ptr_tmp;
+      for (w = 0; w < img->width * loop_info.ele_size; ++w) {
+        *(ptr_pix++) = 0;
+      }
+      ptr_tmp += img->stride[c] * loop_info.ele_size;
+    }
+  }
+  return TD_SUCCESS;
 }
 
 td_s32 write_frame_tmp(ot_svp_img *img, td_s32 cur_idx) {
@@ -362,7 +480,8 @@ td_s32 sample_common_ive_blob_to_rect(ot_ive_ccblob *blob, ot_sample_svp_rect_in
  */
 td_s32 sample_common_ive_blob_to_rois(ot_ive_ccblob *blob, ot_svp_img *img,
                                       td_u16 rect_max_num, td_u16 area_thr_step,
-                                      td_u8 *rois, td_u16 *roi_num) {
+                                      td_u8 *rois, td_u16 *roi_num,
+                                      td_float scale_x, td_float scale_y) {
 
   td_u16 num, i;
   td_u16 thr = 0;
@@ -388,52 +507,83 @@ td_s32 sample_common_ive_blob_to_rois(ot_ive_ccblob *blob, ot_svp_img *img,
                                "img can't be null\n");
   sample_comm_ive_get_loop_info(img, &loop_info);
 
+  sample_svp_trace_debug("rgn_num: %d\n", blob->info.bits.rgn_num);
+  td_u32 min_area = 10000;
+  td_u32 max_x=0, max_y=0;
   for (i = 0; i < blob->info.bits.rgn_num; i++) {
-    if (blob->rgn[i].area <= thr) {
+    if (blob->rgn[i].area < min_area) {
+      min_area = blob->rgn[i].area;
+    }
+    if (blob->rgn[i].right > max_x)
+      max_x = blob->rgn[i].right;
+    if (blob->rgn[i].bottom > max_y)
+      max_y = blob->rgn[i].bottom;
+  }
+  sample_svp_trace_debug("min area: %d, max_x: %d, max_y: %d\n", min_area, max_x, max_y);
+
+  for (i = 0; i < blob->info.bits.rgn_num; i++) {
+    if (blob->rgn[i].area > 150) {
       continue;
     }
 
-    center_x =
-      (td_u32)(0.5 * ((td_float)blob->rgn[i].left + (td_float)blob->rgn[i].right));
-    center_y =
-      (td_u32)(0.5 * ((td_float)blob->rgn[i].top + (td_float)blob->rgn[i].bottom));
+    td_u16 top = blob->rgn[i].top;
+    td_u16 bottom = blob->rgn[i].bottom;
+    td_u16 left = blob->rgn[i].left;
+    td_u16 right = blob->rgn[i].right;
+    /* sample_svp_trace_debug("top: %d, bottom: %d, left: %d, right: %d\n", top,
+     * bottom, left, right); */
+    if (bottom >= 1920 || right > 1080)
+      continue;
 
-    sample_svp_trace_debug("\n center: %d, %d", center_x, center_y);
+    center_x = (td_u32)(scale_x * 0.5 * ((td_float)blob->rgn[i].left +
+                               (td_float)blob->rgn[i].right));
+    center_y = (td_u32)(scale_y * 0.5 * ((td_float)blob->rgn[i].top +
+                               (td_float)blob->rgn[i].bottom));
+
+    /* sample_svp_trace_debug("\n center: %d, %d", center_x, center_y); */
 
     // write roi
     td_u8 *roi_ptr = rois + i * roi_size;
     td_u8 *roi_pix = roi_ptr;
-    for (c = 0; (c < loop_info.loop_c) && (c < OT_SVP_IMG_STRIDE_NUM) && (c < OT_SVP_IMG_ADDR_NUM); c++) {
+    for (c = 0; (c < loop_info.loop_c) && (c < OT_SVP_IMG_STRIDE_NUM) &&
+                (c < OT_SVP_IMG_ADDR_NUM);
+         c++) {
       ptr_tmp = sample_svp_convert_addr_to_ptr(td_u8, img->virt_addr[c]);
       sample_svp_check_exps_return(ptr_tmp == 0, OT_ERR_IVE_ILLEGAL_PARAM,
                                    SAMPLE_SVP_ERR_LEVEL_DEBUG,
                                    "ptr_tmp can't be 0\n");
-      w_start = (center_x - 16 > 0? center_x - 16: 0);
+      w_start = (center_x >= 16 ? center_x - 16 : 0);
       w_end = (img->width * loop_info.ele_size > center_x + 16
                    ? center_x + 16
-               : img->width * loop_info.ele_size);
-      h_start = (center_y - 16 > 0? center_y - 16: 0);
+                   : img->width * loop_info.ele_size);
+      h_start = (center_y >= 16 ? center_y - 16 : 0);
       h_end = (loop_info.loop_h[c] > center_y + 16 ? center_y + 16
-               : loop_info.loop_h[c]);
+                                                   : loop_info.loop_h[c]);
+
+      if (h_start > 1080 || h_start < 0)
+        sample_svp_trace_debug("h_start: %d, stride: %d, ele_s: %d, center_y: "
+                               "%d, top: %d, bottom: %d\n",
+                               h_start, img->stride[c], loop_info.ele_size,
+                               center_y, top, bottom);
+
+      /* h_start = 0; */
       ptr_tmp += h_start * img->stride[c] * loop_info.ele_size;
       ptr_pix = ptr_tmp;
       for (h = h_start; h < h_end; h++) {
         for (w = w_start; w < w_end; w++) {
-          *(roi_pix++) = *(ptr_pix+w);
-          sample_svp_trace_debug("\n pix_v: %d", *(ptr_pix + w));
+          *(roi_pix++) = *(ptr_pix + w);
         }
-        roi_ptr += 32;
+        roi_ptr += 32; // sometimes h_end - h_start < 32
         roi_pix = roi_ptr;
         ptr_tmp += img->stride[c] * loop_info.ele_size;
         ptr_pix = ptr_tmp;
       }
     }
     num++;
-
   }
 
-  *roi_num = num;
-  return TD_SUCCESS;
+    *roi_num = num;
+    return TD_SUCCESS;
 }
 
 static td_s32 sample_comm_ive_set_image_addr(ot_svp_img *img, const ot_sample_rw_image_loop_info *loop_info,
