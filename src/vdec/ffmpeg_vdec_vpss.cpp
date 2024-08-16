@@ -37,6 +37,51 @@ static vdec_display_cfg g_vdec_display_cfg = {
 static ot_size g_disp_size;
 static td_s32 g_sample_exit = 0;
 
+static td_void copy_save_frame(ot_video_frame_info *frame, td_u32 frame_id) {
+  td_u32 height = frame->video_frame.height;
+  td_u32 width = frame->video_frame.width;
+  td_u32 size = height * width * 3 / 2; // 对于YUV420格式，大小为宽*高*1.5
+  /* td_void *tmp = malloc(size); */
+  /* if (tmp == NULL) { */
+  /*     sample_print("malloc failed!\n"); */
+  /*     return; */
+  /* } */
+
+  td_void *yuv = ss_mpi_sys_mmap_cached(frame->video_frame.phys_addr[0], size);
+  if (yuv == NULL) {
+    sample_print("mmap failed!\n");
+    /* free(tmp); */
+    return;
+  }
+
+  /* memcpy(tmp, yuv, size); */
+
+  // 生成文件名
+  char file_name[128];
+  snprintf(file_name, sizeof(file_name), "./frame%ux%u_%u.yuv", width, height,
+           frame_id);
+
+  // 打开文件
+  FILE *file = fopen(file_name, "wb");
+  if (file == NULL) {
+    sample_print("fopen failed!\n");
+    ss_mpi_sys_munmap(yuv, size);
+    /* free(tmp); */
+    return;
+  }
+
+  // 写入文件
+  /* fwrite(tmp, 1, size, file); */
+  fwrite(yuv, 1, size, file);
+  fclose(file);
+
+  // 释放资源
+  ss_mpi_sys_munmap(yuv, size);
+  /* free(tmp); */
+
+  sample_print("Frame %u saved as %s\n", frame_id, file_name);
+}
+
 static td_u32 sample_vdec_get_dimension(bool is_width) {
   if (g_cur_type == OT_PT_H264 || g_cur_type == OT_PT_H265 ||
       g_cur_type == OT_PT_JPEG || g_cur_type == OT_PT_MJPEG) {
@@ -86,72 +131,6 @@ static td_s32 sample_init_module_vb(sample_vdec_attr *sample_vdec,
     return ret;
   }
   return TD_SUCCESS;
-}
-
-static td_s32 sample_vpss_unbind_vo(td_u32 vpss_grp_num,
-                                    sample_vo_cfg vo_config) {
-  td_u32 i;
-  ot_vo_layer vo_layer = vo_config.vo_dev;
-  td_s32 ret = TD_SUCCESS;
-  for (i = 0; i < vpss_grp_num; i++) {
-    ret = sample_comm_vpss_un_bind_vo(i, 0, vo_layer, i);
-    if (ret != TD_SUCCESS) {
-      sample_print("vpss unbind vo fail for %#x!\n", ret);
-    }
-  }
-  return ret;
-}
-
-static td_s32 sample_vpss_bind_vo(sample_vo_cfg vo_config,
-                                  td_u32 vpss_grp_num) {
-  td_u32 i;
-  ot_vo_layer vo_layer;
-  td_s32 ret = TD_SUCCESS;
-  vo_layer = vo_config.vo_dev;
-  for (i = 0; i < vpss_grp_num; i++) {
-    ret = sample_comm_vpss_bind_vo(i, 0, vo_layer, i);
-    if (ret != TD_SUCCESS) {
-      sample_print("vpss bind vo fail for %#x!\n", ret);
-      return ret;
-    }
-  }
-  return ret;
-}
-
-static td_s32 sample_start_vo(sample_vo_cfg *vo_config, td_u32 vpss_grp_num) {
-  td_s32 ret;
-  vo_config->vo_dev = SAMPLE_VO_DEV_UHD;
-  vo_config->vo_intf_type = g_vdec_display_cfg.intf_type;
-  vo_config->intf_sync = g_vdec_display_cfg.intf_sync;
-  vo_config->pic_size = g_vdec_display_cfg.pic_size;
-  vo_config->bg_color = COLOR_RGB_BLUE;
-  vo_config->dis_buf_len = 3; /* 3:buf length */
-  vo_config->dst_dynamic_range = OT_DYNAMIC_RANGE_SDR8;
-  vo_config->vo_mode = VO_MODE_1MUX;
-  vo_config->pix_format = OT_PIXEL_FORMAT_YVU_SEMIPLANAR_420;
-  vo_config->disp_rect.x = 0;
-  vo_config->disp_rect.y = 0;
-  vo_config->disp_rect.width = g_disp_size.width;
-  vo_config->disp_rect.height = g_disp_size.height;
-  vo_config->image_size.width = g_disp_size.width;
-  vo_config->image_size.height = g_disp_size.height;
-  vo_config->vo_part_mode = OT_VO_PARTITION_MODE_SINGLE;
-  vo_config->compress_mode = OT_COMPRESS_MODE_NONE;
-
-  ret = sample_comm_vo_start_vo(vo_config);
-  if (ret != TD_SUCCESS) {
-    sample_print("start VO fail for %#x!\n", ret);
-    sample_comm_vo_stop_vo(vo_config);
-    return ret;
-  }
-
-  ret = sample_vpss_bind_vo(*vo_config, vpss_grp_num);
-  if (ret != TD_SUCCESS) {
-    sample_vpss_unbind_vo(vpss_grp_num, *vo_config);
-    sample_comm_vo_stop_vo(vo_config);
-  }
-
-  return ret;
 }
 
 static td_s32 sample_init_sys_and_vb(sample_vdec_attr *sample_vdec,
@@ -270,26 +249,29 @@ static td_s32 sample_start_vpss(ot_vpss_grp *vpss_grp, td_u32 vpss_grp_num,
   td_s32 ret;
   ot_vpss_chn_attr vpss_chn_attr[OT_VPSS_MAX_CHN_NUM];
   ot_vpss_grp_attr vpss_grp_attr;
-  sample_config_vpss_grp_attr(&vpss_grp_attr);
+  (td_void) memset_s(&vpss_grp_attr, sizeof(ot_vpss_grp_attr), 0,
+                     sizeof(ot_vpss_grp_attr));
+  sample_comm_vpss_get_default_grp_attr(&vpss_grp_attr);
+  vpss_grp_attr.max_width = g_disp_size.width;
+  vpss_grp_attr.max_height = g_disp_size.height;
+
   (td_void) memset_s(vpss_chn_enable, arr_len * sizeof(td_bool), 0,
                      arr_len * sizeof(td_bool));
 
   vpss_chn_enable[0] = TD_TRUE;
   vpss_chn_attr[0].width = g_disp_size.width;   /* 4:crop */
   vpss_chn_attr[0].height = g_disp_size.height; /* 4:crop */
-  vpss_chn_attr[0].compress_mode = OT_COMPRESS_MODE_SEG;
+  vpss_chn_attr[0].depth = 1;
+  vpss_chn_attr[1].compress_mode = OT_COMPRESS_MODE_NONE;
   vpss_chn_attr[0].chn_mode = OT_VPSS_CHN_MODE_USER;
   vpss_chn_attr[0].pixel_format = OT_PIXEL_FORMAT_YVU_SEMIPLANAR_420;
   /* vpss_chn_attr[0].pixel_format = OT_PIXEL_FORMAT_YUV_400; */
   vpss_chn_attr[0].frame_rate.src_frame_rate = -1;
   vpss_chn_attr[0].frame_rate.dst_frame_rate = -1;
-  vpss_chn_attr[0].depth = 1;
-  vpss_chn_attr[0].mirror_en = TD_FALSE;
-  vpss_chn_attr[0].flip_en = TD_FALSE;
-  vpss_chn_attr[0].border_en = TD_FALSE;
-  vpss_chn_attr[0].aspect_ratio.mode = OT_ASPECT_RATIO_NONE;
 
   vpss_chn_enable[1] = TD_TRUE;
+  (td_void) memset_s(&vpss_chn_attr[1], sizeof(ot_vpss_chn_attr), 0,
+                     sizeof(ot_vpss_chn_attr));
   sample_comm_vpss_get_default_chn_attr(&vpss_chn_attr[1]);
   vpss_chn_attr[1].width = g_disp_size.width / 2;   /* 4:crop */
   vpss_chn_attr[1].height = g_disp_size.height / 2; /* 4:crop */
@@ -345,6 +327,10 @@ private:
   std::atomic<bool> decoding_;
   ot_vdec_chn_status vdec_status_;
   ot_vpss_grp vpss_grp;
+  int frame_id = 0;
+
+  // 新增成员变量
+  FILE *packet_file_;
 };
 
 HardwareDecoder::HardwareDecoder(const std::string &rtsp_url)
@@ -353,6 +339,12 @@ HardwareDecoder::HardwareDecoder(const std::string &rtsp_url)
   avformat_network_init();
   if (!initialize_ffmpeg() || !initialize_vdec()) {
     throw std::runtime_error("Initialization failed");
+  }
+
+  // 打开二进制文件用于保存packet
+  packet_file_ = fopen("packets.bin", "wb");
+  if (!packet_file_) {
+    throw std::runtime_error("Failed to open packet file");
   }
 }
 
@@ -366,13 +358,18 @@ HardwareDecoder::~HardwareDecoder() {
   sample_comm_sys_exit();
   avformat_close_input(&fmt_ctx_);
   avformat_network_deinit();
+
+  // 关闭二进制文件
+  if (packet_file_) {
+    fclose(packet_file_);
+  }
 }
 
 bool HardwareDecoder::initialize_ffmpeg() {
   AVDictionary *options = nullptr;
   av_dict_set(&options, "rtsp_transport", "tcp", 0);
-  av_dict_set(&options, "stimeout", "5000000", 0);
-  av_dict_set(&options, "buffer_size", "1024000", 0);
+  av_dict_set(&options, "stimeout", "50000000", 0);
+  av_dict_set(&options, "buffer_size", "10240000", 0);
 
   if (avformat_open_input(&fmt_ctx_, rtsp_url_.c_str(), nullptr, &options) !=
       0) {
@@ -420,7 +417,8 @@ bool HardwareDecoder::initialize_vdec() {
     return false;
   }
 
-  ret = sample_start_vpss(&vpss_grp, vpss_grp_num, &vpss_chn_enable[0], OT_VPSS_MAX_CHN_NUM);
+  ret = sample_start_vpss(&vpss_grp, vpss_grp_num, &vpss_chn_enable[0],
+                          OT_VPSS_MAX_CHN_NUM);
   if (ret != TD_SUCCESS) {
     return false;
   }
@@ -439,17 +437,25 @@ void HardwareDecoder::decode_thread() {
   int packet_num = 0;
 
   while (decoding_ && av_read_frame(fmt_ctx_, &packet) >= 0) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // waiting
+    std::this_thread::sleep_for(std::chrono::milliseconds(30)); // waiting
 
     if (packet.stream_index == video_stream_index_) {
+
+      // 保存packet数据到二进制文件
+      if (packet_file_) {
+        fwrite(&packet.size, sizeof(packet.size), 1, packet_file_);
+        fwrite(packet.data, 1, packet.size, packet_file_);
+      }
+
       stream.addr = packet.data;
       stream.len = packet.size;
       stream.pts = packet.pts;
       stream.need_display = TD_TRUE;
-      // stream.end_of_frame = TD_TRUE;
-      stream.end_of_frame = TD_FALSE;
-      stream.end_of_stream =
-          (packet.flags & AV_PKT_FLAG_KEY) ? TD_TRUE : TD_FALSE;
+      stream.end_of_frame = TD_TRUE;
+      // stream.end_of_frame = TD_FALSE;
+      // stream.end_of_stream =
+      //     (packet.flags & AV_PKT_FLAG_KEY) ? TD_TRUE : TD_FALSE;
+      stream.end_of_stream = TD_FALSE;
 
       td_s32 ret = ss_mpi_vdec_send_stream(0, &stream, -1);
       if (ret != TD_SUCCESS) {
@@ -477,13 +483,13 @@ bool HardwareDecoder::get_frame(ot_video_frame_info &frame) {
     return false;
   }
 
-
   ret = ss_mpi_vpss_get_chn_frame(vpss_grp, 0, &frame, 100);
   if (ret != TD_SUCCESS) {
     sample_print("get chn frame failed for Err(%#x)\n", ret);
   } else {
     std::cout << "Received frame with width: " << frame.video_frame.width
               << std::endl;
+    copy_save_frame(&frame, frame_id++);
   }
   ret = ss_mpi_vpss_release_chn_frame(vpss_grp, 0, &frame);
 

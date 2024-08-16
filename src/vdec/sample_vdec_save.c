@@ -19,8 +19,10 @@
 
 #include "ot_common.h"
 #include "ot_common_video.h"
+#include "ot_common_vpss.h"
 #include "ot_type.h"
 #include "sample_comm.h"
+#include "ss_mpi_sys.h"
 #include "ss_mpi_vpss.h"
 
 #define PIC_SIZE PIC_3840X2160
@@ -246,6 +248,7 @@ static td_s32 sample_config_vpss_ldy_attr(td_u32 vpss_grp_num) {
     vpss_ldy_info.enable = TD_TRUE;
     vpss_ldy_info.line_cnt = SAMPLE_VDEC_VPSS_LOW_DELAY_LINE_CNT;
     ret = ss_mpi_vpss_set_low_delay_attr(i, 0, &vpss_ldy_info);
+    ret = ss_mpi_vpss_set_low_delay_attr(i, 1, &vpss_ldy_info);
     if (ret != TD_SUCCESS) {
       sample_print("vpss set low delay attr fail for %#x!\n", ret);
       return ret;
@@ -259,27 +262,30 @@ static td_s32 sample_start_vpss(ot_vpss_grp *vpss_grp, td_u32 vpss_grp_num,
   td_u32 i;
   td_s32 ret;
   ot_vpss_chn_attr vpss_chn_attr[OT_VPSS_MAX_CHN_NUM];
-  ot_vpss_grp_attr vpss_grp_attr = {0};
-  sample_config_vpss_grp_attr(&vpss_grp_attr);
+  ot_vpss_grp_attr vpss_grp_attr;
+  (td_void) memset_s(&vpss_grp_attr, sizeof(ot_vpss_grp_attr), 0,
+                     sizeof(ot_vpss_grp_attr));
+  sample_comm_vpss_get_default_grp_attr(&vpss_grp_attr);
+  vpss_grp_attr.max_width = g_disp_size.width;
+  vpss_grp_attr.max_height = g_disp_size.height;
+
   (td_void) memset_s(vpss_chn_enable, arr_len * sizeof(td_bool), 0,
                      arr_len * sizeof(td_bool));
 
   vpss_chn_enable[0] = TD_TRUE;
   vpss_chn_attr[0].width = g_disp_size.width;   /* 4:crop */
   vpss_chn_attr[0].height = g_disp_size.height; /* 4:crop */
-  vpss_chn_attr[0].compress_mode = OT_COMPRESS_MODE_SEG;
+  vpss_chn_attr[0].depth = 1;
+  vpss_chn_attr[1].compress_mode = OT_COMPRESS_MODE_NONE;
   vpss_chn_attr[0].chn_mode = OT_VPSS_CHN_MODE_USER;
   vpss_chn_attr[0].pixel_format = OT_PIXEL_FORMAT_YVU_SEMIPLANAR_420;
   /* vpss_chn_attr[0].pixel_format = OT_PIXEL_FORMAT_YUV_400; */
   vpss_chn_attr[0].frame_rate.src_frame_rate = -1;
   vpss_chn_attr[0].frame_rate.dst_frame_rate = -1;
-  vpss_chn_attr[0].depth = 1;
-  vpss_chn_attr[0].mirror_en = TD_FALSE;
-  vpss_chn_attr[0].flip_en = TD_FALSE;
-  vpss_chn_attr[0].border_en = TD_FALSE;
-  vpss_chn_attr[0].aspect_ratio.mode = OT_ASPECT_RATIO_NONE;
 
   vpss_chn_enable[1] = TD_TRUE;
+  (td_void) memset_s(&vpss_chn_attr[1], sizeof(ot_vpss_chn_attr), 0,
+                     sizeof(ot_vpss_chn_attr));
   sample_comm_vpss_get_default_chn_attr(&vpss_chn_attr[1]);
   vpss_chn_attr[1].width = g_disp_size.width / 2;   /* 4:crop */
   vpss_chn_attr[1].height = g_disp_size.height / 2; /* 4:crop */
@@ -416,6 +422,96 @@ circle_send:
   }
   return;
 }
+
+
+static td_void copy_save_frame(ot_video_frame_info *frame, td_u32 frame_id) {
+    td_u32 height = frame->video_frame.height;
+    td_u32 width = frame->video_frame.width;
+    td_u32 size = height * width * 3 / 2; // 对于YUV420格式，大小为宽*高*1.5
+    /* td_void *tmp = malloc(size); */
+    /* if (tmp == NULL) { */
+    /*     sample_print("malloc failed!\n"); */
+    /*     return; */
+    /* } */
+
+    td_void *yuv = ss_mpi_sys_mmap_cached(frame->video_frame.phys_addr[0], size);
+    if (yuv == NULL) {
+        sample_print("mmap failed!\n");
+        /* free(tmp); */
+        return;
+    }
+
+    /* memcpy(tmp, yuv, size); */
+
+    // 生成文件名
+    char file_name[128];
+    snprintf(file_name, sizeof(file_name), "./frame%ux%u_%u.yuv", width, height, frame_id);
+
+    // 打开文件
+    FILE *file = fopen(file_name, "wb");
+    if (file == NULL) {
+        sample_print("fopen failed!\n");
+        ss_mpi_sys_munmap(yuv, size);
+        /* free(tmp); */
+        return;
+    }
+
+    // 写入文件
+    /* fwrite(tmp, 1, size, file); */
+    fwrite(yuv, 1, size, file);
+    fclose(file);
+
+    // 释放资源
+    ss_mpi_sys_munmap(yuv, size);
+    /* free(tmp); */
+
+    sample_print("Frame %u saved as %s\n", frame_id, file_name);
+}
+
+static td_void copy_save_frame400(ot_video_frame_info *frame, td_u32 frame_id) {
+  td_u32 height = frame->video_frame.height;
+  td_u32 width = frame->video_frame.width;
+  td_u32 size = height * width; // 对于YUV420格式，大小为宽*高*1.5
+  /* td_void *tmp = malloc(size); */
+  /* if (tmp == NULL) { */
+  /*   sample_print("malloc failed!\n"); */
+  /*   return; */
+  /* } */
+
+  td_void *yuv = ss_mpi_sys_mmap_cached(frame->video_frame.phys_addr[0], size);
+  if (yuv == NULL) {
+    sample_print("mmap failed!\n");
+    /* free(tmp); */
+    return;
+  }
+
+  /* memcpy(tmp, yuv, size); */
+
+  // 生成文件名
+  char file_name[128];
+  snprintf(file_name, sizeof(file_name), "./frame%ux%u_%u.yuv400", width, height, frame_id);
+
+  // 打开文件
+  FILE *file = fopen(file_name, "wb");
+  if (file == NULL) {
+    sample_print("fopen failed!\n");
+    ss_mpi_sys_munmap(yuv, size);
+    /* free(tmp); */
+    return;
+  }
+
+  // 写入文件
+  /* fwrite(tmp, 1, size, file); */
+  fwrite(yuv, 1, size, file);
+  fclose(file);
+
+  // 释放资源
+  ss_mpi_sys_munmap(yuv, size);
+  /* free(tmp); */
+
+  sample_print("Frame %u saved as %s\n", frame_id, file_name);
+}
+
 static td_void sample_send_stream_to_vdec(sample_vdec_attr *sample_vdec,
                                           td_u32 arr_len, td_u32 vdec_chn_num,
                                           const char *stream_name,
@@ -458,12 +554,13 @@ static td_void sample_send_stream_to_vdec(sample_vdec_attr *sample_vdec,
   // get frame and save
   td_s32 ret;
   ot_video_frame_info frame;
-  for (i = 0; i < 500; ++i) {
+  for (i = 0; i < 50; ++i) {
     ret = ss_mpi_vpss_get_chn_frame(vpss_grp, 0, &frame, -1);
     if (ret != TD_SUCCESS) {
       sample_print("get chn frame failed for Err(%#x)\n", ret);
     } else {
       sample_print("Received frame with width: %d\n", frame.video_frame.width);
+      copy_save_frame(&frame, i);
     }
     ret = ss_mpi_vpss_release_chn_frame(vpss_grp, 0, &frame);
 
@@ -473,6 +570,7 @@ static td_void sample_send_stream_to_vdec(sample_vdec_attr *sample_vdec,
     } else {
       sample_print("Received chn-1 frame with width: %d\n",
                    frame.video_frame.width);
+      copy_save_frame(&frame, i);
     }
     ret = ss_mpi_vpss_release_chn_frame(vpss_grp, 1, &frame);
   }

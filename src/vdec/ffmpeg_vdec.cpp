@@ -36,6 +36,50 @@ static vdec_display_cfg g_vdec_display_cfg = {
 static ot_size g_disp_size;
 static td_s32 g_sample_exit = 0;
 
+static td_void copy_save_frame(ot_video_frame_info *frame, td_u32 frame_id) {
+    td_u32 height = frame->video_frame.height;
+    td_u32 width = frame->video_frame.width;
+    td_u32 size = height * width * 3 / 2; // 对于YUV420格式，大小为宽*高*1.5
+    td_void *tmp = malloc(size);
+    if (tmp == NULL) {
+        sample_print("malloc failed!\n");
+        return;
+    }
+
+    td_void *yuv = ss_mpi_sys_mmap_cached(frame->video_frame.phys_addr[0], size);
+    if (yuv == NULL) {
+        sample_print("mmap failed!\n");
+        free(tmp);
+        return;
+    }
+
+    memcpy(tmp, yuv, size);
+
+    // 生成文件名
+    char file_name[128];
+    snprintf(file_name, sizeof(file_name), "./frame_%u.yuv", frame_id);
+
+    // 打开文件
+    FILE *file = fopen(file_name, "wb");
+    if (file == NULL) {
+        sample_print("fopen failed!\n");
+        ss_mpi_sys_munmap(yuv, size);
+        free(tmp);
+        return;
+    }
+
+    // 写入文件
+    fwrite(tmp, 1, size, file);
+    fclose(file);
+
+    // 释放资源
+    ss_mpi_sys_munmap(yuv, size);
+    free(tmp);
+
+    sample_print("Frame %u saved as %s\n", frame_id, file_name);
+}
+
+
 static td_u32 sample_vdec_get_dimension(bool is_width) {
   if (g_cur_type == OT_PT_H264 || g_cur_type == OT_PT_H265 ||
       g_cur_type == OT_PT_JPEG || g_cur_type == OT_PT_MJPEG) {
@@ -145,6 +189,7 @@ private:
   std::thread decode_thread_;
   std::atomic<bool> decoding_;
   ot_vdec_chn_status vdec_status_;
+  int frame_id=0;
 };
 
 HardwareDecoder::HardwareDecoder(const std::string &rtsp_url)
@@ -275,6 +320,7 @@ bool HardwareDecoder::get_frame(ot_video_frame_info &frame) {
       std::cerr << "Error getting frame " << std::hex << ret << std::endl;
       return false;
     }
+    copy_save_frame(&frame, frame_id++);
     ss_mpi_vdec_release_frame(0, &frame);
     return true;
   } else {
