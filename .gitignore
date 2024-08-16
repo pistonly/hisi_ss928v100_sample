@@ -1,3 +1,5 @@
 /.cache/
 /build/
 /data/
+/tools/*.jpg
+/tools/*.bin
